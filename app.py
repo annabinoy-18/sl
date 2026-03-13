@@ -120,48 +120,68 @@ elif mode == "Letter Image → Speech":
 elif mode == "Live Camera → Letters → Speech":
     st.header("Live Camera → Letters → Speech")
 
-    class LetterRecognizer(VideoTransformerBase):
+    # --------------------------
+    # Helper: match frame to signs
+    # --------------------------
+    def recognize_letter_from_frame(frame_img):
+        pil_img = Image.fromarray(cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB))
+        for file_name in os.listdir(SIGNS_FOLDER):
+            path = os.path.join(SIGNS_FOLDER, file_name)
+            try:
+                if Image.open(path).tobytes() == pil_img.tobytes():
+                    return os.path.splitext(file_name)[0].upper()
+            except:
+                continue
+        return None
+
+    # --------------------------
+    # Video Transformer
+    # --------------------------
+    class SignProcessor(VideoTransformerBase):
+        def __init__(self):
+            self.detected_list = []
+
         def transform(self, frame):
             img = frame.to_ndarray(format="bgr24")
-            pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-
-            recognized_letter = None
-            for file_name in os.listdir(SIGNS_FOLDER):
-                path = os.path.join(SIGNS_FOLDER, file_name)
-                try:
-                    if Image.open(path).tobytes() == pil_img.tobytes():
-                        recognized_letter = os.path.splitext(file_name)[0].upper()
-                        break
-                except:
-                    continue
-
-            if recognized_letter and (len(letters) == 0 or recognized_letter != letters[-1]):
-                letters.append(recognized_letter)
-
-            if recognized_letter:
-                cv2.putText(img, f"Letter: {recognized_letter}", (10,30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+            letter = recognize_letter_from_frame(img)
+            if letter:
+                if not self.detected_list or self.detected_list[-1] != letter:
+                    self.detected_list.append(letter)
+                cv2.putText(img, f"MATCH: {letter}", (50, 100),
+                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
             return img
 
-    webrtc_streamer(
-        key="live_letters",
+    # --------------------------
+    # Start WebRTC streamer
+    # --------------------------
+    ctx = webrtc_streamer(
+        key="live_camera_letters",
         mode=WebRtcMode.SENDONLY,
-        video_transformer_factory=LetterRecognizer,
+        video_transformer_factory=SignProcessor,
+        async_transform=True,
         media_stream_constraints={"video": True, "audio": False},
-        async_transform=True
     )
 
-# ========================
-# Speak letters button
-# ========================
-st.write("Letters detected so far:", "".join(letters))
+    # Sync detected letters to session state
+    if ctx.video_transformer:
+        if st.button("Sync Captured Letters"):
+            st.session_state.letters = ctx.video_transformer.detected_list.copy()
+            st.success("Letters synced! Scroll down to speak.")
 
-if st.button("Speak Word"):
-    if letters:
-        word = "".join(letters)
-        tts_file = "output_live.mp3"
-        tts = gTTS(text=word, lang="en")
-        tts.save(tts_file)
-        st.audio(tts_file)
-    else:
-        st.warning("No letters detected yet.")
+# ========================
+# Footer: display letters and TTS
+# ========================
+st.divider()
+current_word = "".join(st.session_state.get("letters", []))
+st.subheader(f"Constructed Word: :blue[{current_word if current_word else '...'}]")
+
+if st.button("🗑️ Reset"):
+    st.session_state.letters = []
+    st.rerun()
+
+if st.button("🔊 Speak Result"):
+    if current_word:
+        tts = gTTS(text=current_word, lang="en")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
+            tts.save(fp.name)
+            st.audio(fp.name)
