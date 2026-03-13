@@ -16,7 +16,7 @@ SIGNS_FOLDER = os.path.join(os.getcwd(), "signs")  # Folder renamed to 'signs'
 # Check if folder exists
 if not os.path.exists(SIGNS_FOLDER):
     st.error(f"Folder '{SIGNS_FOLDER}' not found! Make sure it exists in the repo root.")
-    st.stop()  # Stop app execution if folder is missing
+    st.stop()
 
 # --- Select Mode ---
 mode = st.selectbox("Select mode:", 
@@ -88,7 +88,7 @@ elif mode == "Letter Image → Speech":
                 path = os.path.join(SIGNS_FOLDER, file_name)
                 try:
                     if Image.open(path).tobytes() == img.tobytes():
-                        recognized_letter = os.path.splitext(file_name)[0].upper()  # FIX: only letter
+                        recognized_letter = os.path.splitext(file_name)[0].upper()
                         break
                 except:
                     continue
@@ -102,7 +102,7 @@ elif mode == "Letter Image → Speech":
             word = "".join(letters)
             st.success(f"Recognized letters: {word}")
             tts_file = "output_letters.mp3"
-            tts = gTTS(text=word, lang="en")  # FIX: TTS reads letters only
+            tts = gTTS(text=word, lang="en")
             tts.save(tts_file)
             st.audio(tts_file)
 
@@ -138,7 +138,15 @@ elif mode == "Live Camera → Letters → Speech":
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
             return img
 
-    webrtc_streamer(key="live_letters", video_transformer_factory=LetterRecognizer)
+    # Safe WebRTC call
+    try:
+        webrtc_streamer(
+            key="live_letters",
+            mode="sendonly",  # safer on Streamlit Cloud
+            video_transformer_factory=LetterRecognizer,
+        )
+    except Exception as e:
+        st.error(f"WebRTC failed to start: {e}")
 
     st.write("Word so far:", "".join(letters))
 
