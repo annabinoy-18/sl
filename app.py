@@ -10,31 +10,35 @@ import cv2
 st.set_page_config(page_title="Speech ↔ Letters ↔ Live Letters", page_icon="🤟", layout="centered")
 st.title("AI Speech ↔ Sign Letters Demo 🎤🖐️")
 
-# --- Folder containing individual letter signs ---
+# --------------------------
+# Folder containing letter signs
+# --------------------------
 SIGNS_FOLDER = os.path.join(os.getcwd(), "signs")
-
-# Check if folder exists
 if not os.path.exists(SIGNS_FOLDER):
     st.error(f"Folder '{SIGNS_FOLDER}' not found! Make sure it exists in the repo root.")
     st.stop()
 
-# --- Select Mode ---
+# --------------------------
+# Session state flags
+# --------------------------
+if "live_mode" not in st.session_state:
+    st.session_state["live_mode"] = False
+if "webrtc_initialized" not in st.session_state:
+    st.session_state["webrtc_initialized"] = False
+
+letters = []
+
+# --------------------------
+# Select mode
+# --------------------------
 mode = st.selectbox("Select mode:", 
                     ["Speech → Letters", "Letter Image → Speech", "Live Camera → Letters → Speech"])
 
-# ----------------------------
-# Mode flags for WebRTC
-# ----------------------------
-if "live_mode" not in st.session_state:
-    st.session_state["live_mode"] = False
-
-st.session_state["live_mode"] = (mode == "Live Camera → Letters → Speech")
-letters = []
-
-# ========================
+# --------------------------
 # Mode 1: Speech → Letters
-# ========================
+# --------------------------
 if mode == "Speech → Letters":
+    st.session_state["live_mode"] = False
     st.header("Speech → Letters")
     st.write("Upload an audio file (wav/mp3) to see the letter signs for each letter.")
 
@@ -59,30 +63,31 @@ if mode == "Speech → Letters":
 
         if text:
             st.write("**Letter Signs:**")
+            available_files = [os.path.splitext(f)[0].upper() for f in os.listdir(SIGNS_FOLDER)]
             for letter in text.replace(" ", ""):
-                letter_upper = letter.upper()  # convert to uppercase
-                # Check uppercase file first
-                img_path_upper = os.path.join(SIGNS_FOLDER, f"{letter_upper}.PNG")
-                img_path_lower = os.path.join(SIGNS_FOLDER, f"{letter_upper}.png")  # also check lowercase extension
-
-                if os.path.exists(img_path_upper):
-                    img = Image.open(img_path_upper)
-                    st.image(img, caption=letter_upper)
-                elif os.path.exists(img_path_lower):
-                    img = Image.open(img_path_lower)
-                    st.image(img, caption=letter_upper)
+                letter_upper = letter.upper()
+                if letter_upper in available_files:
+                    # Find the file with any extension
+                    for f in os.listdir(SIGNS_FOLDER):
+                        if os.path.splitext(f)[0].upper() == letter_upper:
+                            img_path = os.path.join(SIGNS_FOLDER, f)
+                            img = Image.open(img_path)
+                            st.image(img, caption=letter_upper)
+                            break
                 else:
                     st.warning(f"No sign image for letter '{letter_upper}'")
 
-            # Play TTS of the recognized text
+            # TTS
             tts_file = "output_speech.mp3"
             tts = gTTS(text=text, lang="en")
             tts.save(tts_file)
             st.audio(tts_file)
-# ========================
+
+# --------------------------
 # Mode 2: Letter Image → Speech
-# ========================
+# --------------------------
 elif mode == "Letter Image → Speech":
+    st.session_state["live_mode"] = False
     st.header("Letter Image → Speech")
     st.write("Upload one or more letter sign images to hear the spoken letters/word.")
 
@@ -122,43 +127,55 @@ elif mode == "Letter Image → Speech":
             tts.save(tts_file)
             st.audio(tts_file)
 
-# ========================
+# --------------------------
 # Mode 3: Live Camera → Letters → Speech
-# ========================
-st.header("Live Camera → Letters → Speech (Camera always shown)")
+# --------------------------
+st.header("Live Camera → Letters → Speech")
 
-class LetterRecognizer(VideoTransformerBase):
-    def transform(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+camera_placeholder = st.empty()
 
-        if st.session_state["live_mode"]:
-            recognized_letter = None
-            for file_name in os.listdir(SIGNS_FOLDER):
-                path = os.path.join(SIGNS_FOLDER, file_name)
-                try:
-                    if Image.open(path).tobytes() == pil_img.tobytes():
-                        recognized_letter = os.path.splitext(file_name)[0].upper()
-                        break
-                except:
-                    continue
+if mode == "Live Camera → Letters → Speech":
+    st.session_state["live_mode"] = True
 
-            if recognized_letter and (len(letters) == 0 or recognized_letter != letters[-1]):
-                letters.append(recognized_letter)
+    if not st.session_state.get("webrtc_initialized", False):
 
-            if recognized_letter:
-                cv2.putText(img, f"Letter: {recognized_letter}", (10,30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-        return img
+        class LetterRecognizer(VideoTransformerBase):
+            def transform(self, frame):
+                img = frame.to_ndarray(format="bgr24")
+                pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
-# Always call WebRTC at top-level
-webrtc_streamer(
-    key="live_letters",
-    mode=WebRtcMode.SENDONLY,
-    video_transformer_factory=LetterRecognizer,
-    media_stream_constraints={"video": {"facingMode": "user"}, "audio": False}
-)
+                recognized_letter = None
+                for file_name in os.listdir(SIGNS_FOLDER):
+                    path = os.path.join(SIGNS_FOLDER, file_name)
+                    try:
+                        if Image.open(path).tobytes() == pil_img.tobytes():
+                            recognized_letter = os.path.splitext(file_name)[0].upper()
+                            break
+                    except:
+                        continue
 
+                if recognized_letter and (len(letters) == 0 or recognized_letter != letters[-1]):
+                    letters.append(recognized_letter)
+
+                if recognized_letter:
+                    cv2.putText(img, f"Letter: {recognized_letter}", (10,30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+                return img
+
+        camera_placeholder.webrtc_streamer(
+            key="live_letters",
+            mode=WebRtcMode.SENDONLY,
+            video_transformer_factory=LetterRecognizer,
+            media_stream_constraints={"video": {"facingMode": "user"}, "audio": False}
+        )
+
+        st.session_state["webrtc_initialized"] = True
+else:
+    st.session_state["live_mode"] = False
+
+# --------------------------
+# Speak letters button
+# --------------------------
 st.write("Word so far:", "".join(letters))
 
 if st.button("Speak Word"):
