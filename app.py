@@ -59,19 +59,25 @@ if mode == "Speech → Letters":
 
         if text:
             st.write("**Letter Signs:**")
-            for letter in text.replace(" ", "").lower():
-                img_path = os.path.join(SIGNS_FOLDER, f"{letter}.png")
-                if os.path.exists(img_path):
-                    img = Image.open(img_path)
+            for letter in text.replace(" ", ""):
+                # Check both uppercase and lowercase filenames
+                img_path_upper = os.path.join(SIGNS_FOLDER, f"{letter.upper()}.PNG")
+                img_path_lower = os.path.join(SIGNS_FOLDER, f"{letter.lower()}.PNG")
+
+                if os.path.exists(img_path_upper):
+                    img = Image.open(img_path_upper)
+                    st.image(img, caption=letter.upper())
+                elif os.path.exists(img_path_lower):
+                    img = Image.open(img_path_lower)
                     st.image(img, caption=letter.upper())
                 else:
                     st.warning(f"No sign image for letter '{letter}'")
 
+            # Play TTS of the recognized text
             tts_file = "output_speech.mp3"
             tts = gTTS(text=text, lang="en")
             tts.save(tts_file)
             st.audio(tts_file)
-
 # ========================
 # Mode 2: Letter Image → Speech
 # ========================
