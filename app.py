@@ -15,47 +15,59 @@ st.set_page_config(page_title="AI Speech ↔ Sign Letters", page_icon="🤟", la
 SIGNS_FOLDER = os.path.join(os.getcwd(), "signs")
 if not os.path.exists(SIGNS_FOLDER):
     os.makedirs(SIGNS_FOLDER, exist_ok=True)
-    st.error(f"Please add letter images (A.jpg, B.jpg, etc.) to the '{SIGNS_FOLDER}' folder.")
+    st.warning(f"Note: Put letter images (A.jpg, B.jpg, etc.) in the '{SIGNS_FOLDER}' folder.")
 
 # --- SESSION STATE ---
+# We use a list to track detected letters
 if "letters" not in st.session_state:
     st.session_state["letters"] = []
 
-# Thread-safe lock for WebRTC
+# This lock prevents the Camera thread and UI thread from crashing each other
 lock = threading.Lock()
 
-# --- HELPER FUNCTIONS ---
-def recognize_letter_from_image(input_img):
+# --- RECOGNITION HELPER ---
+def recognize_letter_from_frame(frame_bgr):
     """
-    Compares input image to images in the signs folder using Template Matching.
-    This is more reliable than bit-wise comparison but still basic.
+    Compares the current camera frame to images in the signs folder.
+    Uses Template Matching (Similarity score) instead of bit-wise comparison.
     """
     best_match = None
     max_val = -1
     
-    # Convert input to grayscale for faster comparison
-    gray_input = cv2.cvtColor(np.array(input_img), cv2.COLOR_RGB2GRAY)
+    # Convert frame to grayscale for faster/more accurate comparison
+    gray_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     
+    # Check if folder is empty
+    if not os.listdir(SIGNS_FOLDER):
+        return None
+
     for file_name in os.listdir(SIGNS_FOLDER):
         if file_name.lower().endswith(('.png', '.jpg', '.jpeg')):
             path = os.path.join(SIGNS_FOLDER, file_name)
-            template = cv2.imread(path, 0) # Read as grayscale
+            template = cv2.imread(path, 0)
             if template is None: continue
             
-            # Resize template to match input size for basic comparison
-            template = cv2.resize(template, (gray_input.shape[1], gray_input.shape[0]))
+            # Resize template to match a portion of the frame
+            # (Basic approach: match template to frame size)
+            t_h, t_w = template.shape[:2]
+            f_h, f_w = gray_frame.shape[:2]
             
-            res = cv2.matchTemplate(gray_input, template, cv2.TM_CCOEFF_NORMED)
+            # To make it work, we resize the template to roughly match the camera input
+            scaling_factor = f_h / t_h
+            resized_template = cv2.resize(template, (int(t_w * scaling_factor), f_h))
+            
+            # Use OpenCV Template Matching
+            res = cv2.matchTemplate(gray_frame, resized_template, cv2.TM_CCOEFF_NORMED)
             _, val, _, _ = cv2.minMaxLoc(res)
             
             if val > max_val:
                 max_val = val
                 best_match = os.path.splitext(file_name)[0].upper()
     
-    # Threshold: Only return if the match is decent (> 60% similarity)
+    # Sensitivity Threshold: 0.6 means 60% similarity
     return best_match if max_val > 0.6 else None
 
-# --- UI ---
+# --- UI LOGIC ---
 st.title("AI Speech ↔ Sign Letters Demo 🎤🖐️")
 mode = st.selectbox("Select mode:", ["Speech → Letters", "Letter Image → Speech", "Live Camera → Letters"])
 
@@ -64,7 +76,7 @@ mode = st.selectbox("Select mode:", ["Speech → Letters", "Letter Image → Spe
 # ========================
 if mode == "Speech → Letters":
     st.header("Speech → Letters")
-    uploaded_file = st.file_uploader("Upload speech file (wav/mp3):", type=["wav","mp3"])
+    uploaded_file = st.file_uploader("Upload speech (wav/mp3):", type=["wav","mp3"])
     
     if uploaded_file:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
@@ -78,43 +90,43 @@ if mode == "Speech → Letters":
             text = r.recognize_google(audio).upper()
             st.success(f"Recognized: {text}")
             
-            cols = st.columns(len(text.replace(" ", "")))
-            idx = 0
-            for char in text:
-                if char == " ": continue
-                img_path = os.path.join(SIGNS_FOLDER, f"{char}.jpg") # Assumes .jpg
-                if os.path.exists(img_path):
-                    cols[idx].image(Image.open(img_path), caption=char)
-                    idx += 1
+            # Display signs in a row
+            char_list = [c for c in text if c.isalnum()]
+            if char_list:
+                cols = st.columns(len(char_list))
+                for i, char in enumerate(char_list):
+                    img_path = os.path.join(SIGNS_FOLDER, f"{char}.jpg")
+                    if os.path.exists(img_path):
+                        cols[i].image(Image.open(img_path), caption=char)
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Could not process audio: {e}")
 
 # ========================
 # Mode 2: Letter Image → Speech
 # ========================
 elif mode == "Letter Image → Speech":
-    st.header("Letter Image → Speech")
-    uploaded_images = st.file_uploader("Upload signs in order", type=["png","jpg","jpeg"], accept_multiple_files=True)
+    st.header("Static Image Recognition")
+    uploaded_images = st.file_uploader("Upload sign images", type=["png","jpg","jpeg"], accept_multiple_files=True)
 
-    if uploaded_images and st.button("Process Images"):
+    if uploaded_images and st.button("Extract Letters"):
         detected_word = ""
         for img_file in uploaded_images:
-            img = Image.open(img_file)
-            letter = recognize_letter_from_image(img)
+            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+            img = cv2.imdecode(file_bytes, 1)
+            letter = recognize_letter_from_frame(img)
             if letter:
                 detected_word += letter
         
         if detected_word:
             st.session_state.letters = list(detected_word)
-            st.success(f"Recognized: {detected_word}")
-        else:
-            st.warning("No signs recognized.")
+            st.success(f"Detected Word: {detected_word}")
 
 # ========================
 # Mode 3: Live Camera
 # ========================
 elif mode == "Live Camera → Letters":
     st.header("Live Camera Recognition")
+    st.info("Hold your hand sign clearly in front of the camera.")
     
     class SignProcessor(VideoProcessorBase):
         def __init__(self):
@@ -122,45 +134,50 @@ elif mode == "Live Camera → Letters":
 
         def recv(self, frame):
             img = frame.to_ndarray(format="bgr24")
-            # Convert to PIL for our helper function
-            pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
             
-            letter = recognize_letter_from_image(pil_img)
+            # Call our recognition helper
+            letter = recognize_letter_from_frame(img)
             
             if letter:
                 with lock:
-                    # Update session state if it's a new letter
+                    # Prevent spamming the same letter repeatedly
                     if not st.session_state.letters or st.session_state.letters[-1] != letter:
                         st.session_state.letters.append(letter)
                 
-                cv2.putText(img, f"Detected: {letter}", (10, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
+                # Draw the letter on the screen for feedback
+                cv2.putText(img, f"MATCH: {letter}", (50, 100), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
             
             return frame.from_ndarray(img, format="bgr24")
 
+    # The actual WebRTC widget with STUN configuration
     webrtc_streamer(
-        key="sign_cam",
+        key="sign_cam_v2",
         mode=WebRtcMode.SENDRECV,
         video_processor_factory=SignProcessor,
-        media_stream_constraints={"video": True, "audio": False},
         async_processing=True,
+        # THIS FIXES THE "CONNECTION TAKING LONGER" ERROR
+        rtc_configuration={
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        },
+        media_stream_constraints={"video": True, "audio": False},
     )
 
-# --- FOOTER / AUDIO OUTPUT ---
+# --- GLOBAL FOOTER ---
 st.divider()
 current_word = "".join(st.session_state.letters)
-st.subheader(f"Current Word: {current_word}")
+st.subheader(f"Constructed Word: :blue[{current_word if current_word else '...'}]")
 
 col1, col2 = st.columns(2)
-if col1.button("Clear Word"):
+if col1.button("🗑️ Reset"):
     st.session_state.letters = []
     st.rerun()
 
-if col2.button("Speak Word"):
+if col2.button("🔊 Speak Result"):
     if current_word:
         tts = gTTS(text=current_word, lang="en")
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
             tts.save(fp.name)
-            st.audio(fp.name)
+            st.audio(fp.name, autoplay=True)
     else:
-        st.warning("Nothing to speak.")
+        st.warning("No letters detected yet.")
