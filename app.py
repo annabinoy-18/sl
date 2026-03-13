@@ -11,7 +11,12 @@ st.set_page_config(page_title="Speech ↔ Letters ↔ Live Letters", page_icon="
 st.title("AI Speech ↔ Sign Letters Demo 🎤🖐️")
 
 # --- Folder containing individual letter signs ---
-LETTER_SIGNS_FOLDER = "sign_images_letters"  # contains a.png, b.png, ... z.png
+SIGNS_FOLDER = os.path.join(os.getcwd(), "signs")  # Folder renamed to 'signs'
+
+# Check if folder exists
+if not os.path.exists(SIGNS_FOLDER):
+    st.error(f"Folder '{SIGNS_FOLDER}' not found! Make sure it exists in the repo root.")
+    st.stop()  # Stop app execution if folder is missing
 
 # --- Select Mode ---
 mode = st.selectbox("Select mode:", 
@@ -29,7 +34,6 @@ if mode == "Speech → Letters":
         audio_bytes = uploaded_file.read()
         st.success("Audio uploaded! Processing...")
 
-        # Save temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
             temp_audio.write(audio_bytes)
             temp_path = temp_audio.name
@@ -46,15 +50,14 @@ if mode == "Speech → Letters":
 
         if text:
             st.write("**Letter Signs:**")
-            for letter in text.replace(" ", "").lower():  # ignore spaces
-                img_path = os.path.join(LETTER_SIGNS_FOLDER, f"{letter}.png")
+            for letter in text.replace(" ", "").lower():
+                img_path = os.path.join(SIGNS_FOLDER, f"{letter}.png")
                 if os.path.exists(img_path):
                     img = Image.open(img_path)
                     st.image(img, caption=letter.upper())
                 else:
                     st.warning(f"No sign image for letter '{letter}'")
 
-            # Optional TTS
             tts_file = "output_speech.mp3"
             tts = gTTS(text=text, lang="en")
             tts.save(tts_file)
@@ -67,8 +70,12 @@ elif mode == "Letter Image → Speech":
     st.header("Letter Image → Speech")
     st.write("Upload a letter sign image to hear the spoken letter or word.")
 
-    uploaded_images = st.file_uploader("Upload one or more letter images in order", 
-                                       type=["png","jpg","jpeg"], accept_multiple_files=True, key="letters2speech")
+    uploaded_images = st.file_uploader(
+        "Upload one or more letter images in order", 
+        type=["png","jpg","jpeg"], 
+        accept_multiple_files=True, 
+        key="letters2speech"
+    )
     letters = []
     if uploaded_images:
         for img_file in uploaded_images:
@@ -76,8 +83,8 @@ elif mode == "Letter Image → Speech":
             st.image(img, caption="Uploaded Letter", use_column_width=True)
 
             recognized_letter = None
-            for file_name in os.listdir(LETTER_SIGNS_FOLDER):
-                path = os.path.join(LETTER_SIGNS_FOLDER, file_name)
+            for file_name in os.listdir(SIGNS_FOLDER):
+                path = os.path.join(SIGNS_FOLDER, file_name)
                 try:
                     if Image.open(path).tobytes() == img.tobytes():
                         recognized_letter = os.path.splitext(file_name)[0].upper()
@@ -113,8 +120,8 @@ elif mode == "Live Camera → Letters → Speech":
             pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
             recognized_letter = None
-            for file_name in os.listdir(LETTER_SIGNS_FOLDER):
-                path = os.path.join(LETTER_SIGNS_FOLDER, file_name)
+            for file_name in os.listdir(SIGNS_FOLDER):
+                path = os.path.join(SIGNS_FOLDER, file_name)
                 try:
                     if Image.open(path).tobytes() == pil_img.tobytes():
                         recognized_letter = os.path.splitext(file_name)[0].upper()
