@@ -1,4 +1,3 @@
 streamlit
-SpeechRecognition
 pillow
-pyaudio
+SpeechRecognition
