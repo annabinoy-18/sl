@@ -34,9 +34,9 @@ letters = []
 mode = st.selectbox("Select mode:", 
                     ["Speech → Letters", "Letter Image → Speech", "Live Camera → Letters → Speech"])
 
-# --------------------------
+# ========================
 # Mode 1: Speech → Letters
-# --------------------------
+# ========================
 if mode == "Speech → Letters":
     st.session_state["live_mode"] = False
     st.header("Speech → Letters")
@@ -67,7 +67,7 @@ if mode == "Speech → Letters":
             for letter in text.replace(" ", ""):
                 letter_upper = letter.upper()
                 if letter_upper in available_files:
-                    # Find the file with any extension
+                    # Find the file (any extension)
                     for f in os.listdir(SIGNS_FOLDER):
                         if os.path.splitext(f)[0].upper() == letter_upper:
                             img_path = os.path.join(SIGNS_FOLDER, f)
@@ -83,9 +83,9 @@ if mode == "Speech → Letters":
             tts.save(tts_file)
             st.audio(tts_file)
 
-# --------------------------
+# ========================
 # Mode 2: Letter Image → Speech
-# --------------------------
+# ========================
 elif mode == "Letter Image → Speech":
     st.session_state["live_mode"] = False
     st.header("Letter Image → Speech")
@@ -127,12 +127,10 @@ elif mode == "Letter Image → Speech":
             tts.save(tts_file)
             st.audio(tts_file)
 
-# --------------------------
+# ========================
 # Mode 3: Live Camera → Letters → Speech
-# --------------------------
+# ========================
 st.header("Live Camera → Letters → Speech")
-
-camera_placeholder = st.empty()
 
 if mode == "Live Camera → Letters → Speech":
     st.session_state["live_mode"] = True
@@ -162,7 +160,7 @@ if mode == "Live Camera → Letters → Speech":
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
                 return img
 
-        camera_placeholder.webrtc_streamer(
+        webrtc_streamer(
             key="live_letters",
             mode=WebRtcMode.SENDONLY,
             video_transformer_factory=LetterRecognizer,
