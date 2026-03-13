@@ -60,18 +60,19 @@ if mode == "Speech → Letters":
         if text:
             st.write("**Letter Signs:**")
             for letter in text.replace(" ", ""):
-                # Check both uppercase and lowercase filenames
-                img_path_upper = os.path.join(SIGNS_FOLDER, f"{letter.upper()}.PNG")
-                img_path_lower = os.path.join(SIGNS_FOLDER, f"{letter.lower()}.PNG")
+                letter_upper = letter.upper()  # convert to uppercase
+                # Check uppercase file first
+                img_path_upper = os.path.join(SIGNS_FOLDER, f"{letter_upper}.PNG")
+                img_path_lower = os.path.join(SIGNS_FOLDER, f"{letter_upper}.png")  # also check lowercase extension
 
                 if os.path.exists(img_path_upper):
                     img = Image.open(img_path_upper)
-                    st.image(img, caption=letter.upper())
+                    st.image(img, caption=letter_upper)
                 elif os.path.exists(img_path_lower):
                     img = Image.open(img_path_lower)
-                    st.image(img, caption=letter.upper())
+                    st.image(img, caption=letter_upper)
                 else:
-                    st.warning(f"No sign image for letter '{letter}'")
+                    st.warning(f"No sign image for letter '{letter_upper}'")
 
             # Play TTS of the recognized text
             tts_file = "output_speech.mp3"
