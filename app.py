@@ -4,7 +4,7 @@ from PIL import Image
 import speech_recognition as sr
 import tempfile
 import os
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import cv2
 
 st.set_page_config(page_title="Speech ↔ Letters ↔ Live Letters", page_icon="🤟", layout="centered")
@@ -115,6 +115,7 @@ elif mode == "Live Camera → Letters → Speech":
 
     letters = []
 
+    # Video transformer class
     class LetterRecognizer(VideoTransformerBase):
         def transform(self, frame):
             img = frame.to_ndarray(format="bgr24")
@@ -138,10 +139,10 @@ elif mode == "Live Camera → Letters → Speech":
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
             return img
 
-    # --- Correct WebRTC call for Streamlit Cloud ---
+    # WebRTC streamer (Cloud-safe)
     webrtc_streamer(
         key="live_letters",
-        mode="sendonly",
+        mode=WebRtcMode.SENDONLY,  # ✅ Enum, not string
         video_transformer_factory=LetterRecognizer,
         media_stream_constraints={"video": True, "audio": False}
     )
