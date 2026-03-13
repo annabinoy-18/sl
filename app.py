@@ -138,15 +138,13 @@ elif mode == "Live Camera → Letters → Speech":
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
             return img
 
-    # Safe WebRTC call
-    try:
-        webrtc_streamer(
-            key="live_letters",
-            mode="sendonly",  # safer on Streamlit Cloud
-            video_transformer_factory=LetterRecognizer,
-        )
-    except Exception as e:
-        st.error(f"WebRTC failed to start: {e}")
+    # --- Correct WebRTC call for Streamlit Cloud ---
+    webrtc_streamer(
+        key="live_letters",
+        mode="sendonly",
+        video_transformer_factory=LetterRecognizer,
+        media_stream_constraints={"video": True, "audio": False}
+    )
 
     st.write("Word so far:", "".join(letters))
 
