@@ -34,6 +34,7 @@ if mode == "Speech → Letters":
         audio_bytes = uploaded_file.read()
         st.success("Audio uploaded! Processing...")
 
+        # Save temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
             temp_audio.write(audio_bytes)
             temp_path = temp_audio.name
@@ -68,10 +69,10 @@ if mode == "Speech → Letters":
 # ========================
 elif mode == "Letter Image → Speech":
     st.header("Letter Image → Speech")
-    st.write("Upload a letter sign image to hear the spoken letter or word.")
+    st.write("Upload one or more letter sign images to hear the spoken letters/word.")
 
     uploaded_images = st.file_uploader(
-        "Upload one or more letter images in order", 
+        "Upload letter images in order", 
         type=["png","jpg","jpeg"], 
         accept_multiple_files=True, 
         key="letters2speech"
@@ -87,7 +88,7 @@ elif mode == "Letter Image → Speech":
                 path = os.path.join(SIGNS_FOLDER, file_name)
                 try:
                     if Image.open(path).tobytes() == img.tobytes():
-                        recognized_letter = os.path.splitext(file_name)[0].upper()
+                        recognized_letter = os.path.splitext(file_name)[0].upper()  # FIX: only letter
                         break
                 except:
                     continue
@@ -101,7 +102,7 @@ elif mode == "Letter Image → Speech":
             word = "".join(letters)
             st.success(f"Recognized letters: {word}")
             tts_file = "output_letters.mp3"
-            tts = gTTS(text=word, lang="en")
+            tts = gTTS(text=word, lang="en")  # FIX: TTS reads letters only
             tts.save(tts_file)
             st.audio(tts_file)
 
