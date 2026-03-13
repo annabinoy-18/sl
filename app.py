@@ -4,36 +4,21 @@ from PIL import Image
 import os
 import time
 
-st.title("🎤 Voice to Sign Language Slideshow")
+st.title("Voice to Sign Language Slideshow")
 
-recognizer = sr.Recognizer()
+# text input backup
+text = st.text_input("Enter a word")
 
-if st.button("Speak"):
+if text:
+    word = text.upper()
+    placeholder = st.empty()
 
-    with sr.Microphone() as source:
-        st.info("Listening...")
-        audio = recognizer.listen(source)
+    for letter in word:
+        path = f"signs/{letter}.png"
 
-    try:
-        text = recognizer.recognize_google(audio)
-        st.success(f"You said: {text}")
-
-        word = text.upper()
-
-        placeholder = st.empty()
-
-        for letter in word:
-
-            if letter != " ":
-
-                path = f"signs/{letter}.png"
-
-                if os.path.exists(path):
-                    img = Image.open(path)
-
-                    placeholder.image(img, width=300)
-
-                    time.sleep(1.5)
-
-    except:
-        st.error("Could not understand the audio")
+        if os.path.exists(path):
+            img = Image.open(path)
+            placeholder.image(img, width=300)
+            time.sleep(1.5)
+        else:
+            st.warning(f"No image for {letter}")
