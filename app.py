@@ -6,6 +6,34 @@ import tempfile
 import os
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import cv2
+import time
+
+# --------------------------
+# Dark theme CSS tweaks
+# --------------------------
+st.markdown(
+    """
+    <style>
+    /* App background & text */
+    .stApp { background-color: #0e1117; color: #fafafa; }
+
+    /* Buttons */
+    .stButton>button { background-color: #1abc9c; color: #000; }
+    .stButton>button:hover { background-color: #16a085; color: #fff; }
+
+    /* FileUploader */
+    .stFileUploader>div { background-color: #262730; color: #fafafa; }
+
+    /* Headers and markdown */
+    h1, h2, h3, h4, h5, h6 { color: #fafafa; }
+    .stMarkdown p, .stMarkdown span { color: #fafafa; }
+
+    /* Divider line */
+    hr { border: 1px solid #1abc9c; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 st.set_page_config(page_title="AI Speech ↔ Sign Letters", page_icon="🤟", layout="centered")
 st.title("AI Speech ↔ Sign Letters Demo 🎤🖐️")
@@ -23,6 +51,8 @@ if not os.path.exists(SIGNS_FOLDER):
 # --------------------------
 if "letters" not in st.session_state:
     st.session_state["letters"] = []
+if "live_tts_queue" not in st.session_state:
+    st.session_state["live_tts_queue"] = []
 
 letters = st.session_state["letters"]
 
@@ -36,7 +66,7 @@ mode = st.selectbox("Select mode:",
 # Mode 1: Speech → Letters
 # ========================
 if mode == "Speech → Letters":
-    st.header("Speech → Letters")
+    st.markdown("## 🎤 Speech → Letters", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload speech file (wav/mp3):", type=["wav","mp3"])
     if uploaded_file:
         audio_bytes = uploaded_file.read()
@@ -49,13 +79,13 @@ if mode == "Speech → Letters":
             with sr.AudioFile(temp_path) as source:
                 audio = r.record(source)
             text = r.recognize_google(audio)
-            st.write("**Recognized text:**", text)
+            st.markdown(f"**Recognized text:** {text}", unsafe_allow_html=True)
         except:
             st.error("Could not process audio.")
             text = ""
 
         if text:
-            st.write("**Letter Signs:**")
+            st.markdown("**Letter Signs:**", unsafe_allow_html=True)
             available_files = [os.path.splitext(f)[0].upper() for f in os.listdir(SIGNS_FOLDER)]
             for letter in text.replace(" ", ""):
                 letter_upper = letter.upper()
@@ -78,7 +108,7 @@ if mode == "Speech → Letters":
 # Mode 2: Letter Image → Speech
 # ========================
 elif mode == "Letter Image → Speech":
-    st.header("Letter Image → Speech")
+    st.markdown("## 🖐️ Letter Image → Speech", unsafe_allow_html=True)
     uploaded_images = st.file_uploader(
         "Upload letter images in order", 
         type=["png","jpg","jpeg"], 
@@ -115,14 +145,12 @@ elif mode == "Letter Image → Speech":
             st.audio(tts_file)
 
 # ========================
-# Mode 3: Live Camera → Letters → Speech
+# Mode 3: Live Camera → Letters → Speech (Auto-TTS)
 # ========================
 elif mode == "Live Camera → Letters → Speech":
-    st.header("Live Camera → Letters → Speech")
+    st.markdown("## 📹 Live Camera → Letters → Speech", unsafe_allow_html=True)
 
-    # --------------------------
-    # Helper: match frame to signs
-    # --------------------------
+    # Helper function: match frame to signs
     def recognize_letter_from_frame(frame_img):
         pil_img = Image.fromarray(cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB))
         for file_name in os.listdir(SIGNS_FOLDER):
@@ -134,9 +162,7 @@ elif mode == "Live Camera → Letters → Speech":
                 continue
         return None
 
-    # --------------------------
-    # Video Transformer
-    # --------------------------
+    # Video processor class
     class SignProcessor(VideoTransformerBase):
         def __init__(self):
             self.detected_list = []
@@ -144,44 +170,49 @@ elif mode == "Live Camera → Letters → Speech":
         def transform(self, frame):
             img = frame.to_ndarray(format="bgr24")
             letter = recognize_letter_from_frame(img)
+
             if letter:
                 if not self.detected_list or self.detected_list[-1] != letter:
                     self.detected_list.append(letter)
+                    st.session_state.live_tts_queue.append(letter)
+
                 cv2.putText(img, f"MATCH: {letter}", (50, 100),
                             cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
             return img
 
-    # --------------------------
     # Start WebRTC streamer
-    # --------------------------
     ctx = webrtc_streamer(
-        key="live_camera_letters",
+        key="sign_cam_v5",
         mode=WebRtcMode.SENDONLY,
         video_transformer_factory=SignProcessor,
         async_transform=True,
         media_stream_constraints={"video": True, "audio": False},
     )
 
-    # Sync detected letters to session state
+    # Button to sync captured letters
     if ctx.video_transformer:
         if st.button("Sync Captured Letters"):
             st.session_state.letters = ctx.video_transformer.detected_list.copy()
-            st.success("Letters synced! Scroll down to speak.")
+            st.success("Letters synced!")
 
-# ========================
-# Footer: display letters and TTS
-# ========================
-st.divider()
-current_word = "".join(st.session_state.get("letters", []))
-st.subheader(f"Constructed Word: :blue[{current_word if current_word else '...'}]")
-
-if st.button("🗑️ Reset"):
-    st.session_state.letters = []
-    st.rerun()
-
-if st.button("🔊 Speak Result"):
-    if current_word:
-        tts = gTTS(text=current_word, lang="en")
+    # Auto-TTS for new letters
+    while st.session_state.live_tts_queue:
+        letter_to_speak = st.session_state.live_tts_queue.pop(0)
+        letters.append(letter_to_speak)
+        tts = gTTS(text=letter_to_speak, lang="en")
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
             tts.save(fp.name)
             st.audio(fp.name)
+        time.sleep(0.5)
+
+# ========================
+# Footer: display constructed word
+# ========================
+st.divider()
+current_word = "".join(st.session_state.get("letters", []))
+st.markdown(f"### Constructed Word: <span style='color:#1abc9c'>{current_word if current_word else '...'}</span>", unsafe_allow_html=True)
+
+if st.button("🗑️ Reset"):
+    st.session_state.letters = []
+    st.session_state.live_tts_queue = []
+    st.rerun()
