@@ -37,7 +37,6 @@ mode = st.selectbox("Select mode:",
 # ========================
 if mode == "Speech → Letters":
     st.header("Speech → Letters")
-    st.session_state["live_mode"] = False
     uploaded_file = st.file_uploader("Upload speech file (wav/mp3):", type=["wav","mp3"])
     if uploaded_file:
         audio_bytes = uploaded_file.read()
@@ -79,79 +78,90 @@ if mode == "Speech → Letters":
 # Mode 2: Letter Image → Speech
 # ========================
 elif mode == "Letter Image → Speech":
-    st.header("Static Image Recognition")
-    uploaded_images = st.file_uploader("Upload sign images", type=["png","jpg","jpeg"], accept_multiple_files=True)
-
-    if uploaded_images and st.button("Extract Letters"):
-        detected_word = ""
-        for img_file in uploaded_images:
-            file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-            img = cv2.imdecode(file_bytes, 1)
-            letter = recognize_letter_from_frame(img)
-            if letter:
-                detected_word += letter
-        
-        if detected_word:
-            st.session_state.letters = list(detected_word)
-            st.success(f"Detected Word: {detected_word}")
-
-# ========================
-# Mode 3: Live Camera
-# ========================
-elif mode == "Live Camera → Letters":
-    st.header("Live Camera Recognition")
-    st.info("Hold your hand sign clearly in front of the camera.")
-    
-    class SignProcessor(VideoProcessorBase):
-        def __init__(self):
-            self.last_letter = None
-
-        def recv(self, frame):
-            img = frame.to_ndarray(format="bgr24")
-            
-            # Call our recognition helper
-            letter = recognize_letter_from_frame(img)
-            
-            if letter:
-                with lock:
-                    # Prevent spamming the same letter repeatedly
-                    if not st.session_state.letters or st.session_state.letters[-1] != letter:
-                        st.session_state.letters.append(letter)
-                
-                # Draw the letter on the screen for feedback
-                cv2.putText(img, f"MATCH: {letter}", (50, 100), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
-            
-            return frame.from_ndarray(img, format="bgr24")
-
-    # The actual WebRTC widget with STUN configuration
-    webrtc_streamer(
-        key="sign_cam_v2",
-        mode=WebRtcMode.SENDRECV,
-        video_processor_factory=SignProcessor,
-        async_processing=True,
-        # THIS FIXES THE "CONNECTION TAKING LONGER" ERROR
-        rtc_configuration={
-            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        },
-        media_stream_constraints={"video": True, "audio": False},
+    st.header("Letter Image → Speech")
+    uploaded_images = st.file_uploader(
+        "Upload letter images in order", 
+        type=["png","jpg","jpeg"], 
+        accept_multiple_files=True
     )
 
-# --- GLOBAL FOOTER ---
-st.divider()
-current_word = "".join(st.session_state.letters)
-st.subheader(f"Constructed Word: :blue[{current_word if current_word else '...'}]")
+    letters.clear()
+    if uploaded_images:
+        for img_file in uploaded_images:
+            img = Image.open(img_file)
+            st.image(img, caption="Uploaded Letter", use_column_width=True)
 
-col1, col2 = st.columns(2)
-if col1.button("🗑️ Reset"):
-    st.session_state.letters = []
-    st.rerun()
+            recognized_letter = None
+            for file_name in os.listdir(SIGNS_FOLDER):
+                path = os.path.join(SIGNS_FOLDER, file_name)
+                try:
+                    if Image.open(path).tobytes() == img.tobytes():
+                        recognized_letter = os.path.splitext(file_name)[0].upper()
+                        break
+                except:
+                    continue
 
-if col2.button("🔊 Speak Result"):
-    if current_word:
-        tts = gTTS(text=current_word, lang="en")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-            tts.save(fp.name)
-            st.audio(fp.name, autoplay=True)
+            if recognized_letter:
+                letters.append(recognized_letter)
+            else:
+                st.warning(f"Could not recognize letter for {img_file.name}")
+
+        if letters:
+            word = "".join(letters)
+            st.success(f"Recognized letters: {word}")
+            tts_file = "output_letters.mp3"
+            tts = gTTS(text=word, lang="en")
+            tts.save(tts_file)
+            st.audio(tts_file)
+
+# ========================
+# Mode 3: Live Camera → Letters → Speech
+# ========================
+elif mode == "Live Camera → Letters → Speech":
+    st.header("Live Camera → Letters → Speech")
+
+    class LetterRecognizer(VideoTransformerBase):
+        def transform(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+            pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+            recognized_letter = None
+            for file_name in os.listdir(SIGNS_FOLDER):
+                path = os.path.join(SIGNS_FOLDER, file_name)
+                try:
+                    if Image.open(path).tobytes() == pil_img.tobytes():
+                        recognized_letter = os.path.splitext(file_name)[0].upper()
+                        break
+                except:
+                    continue
+
+            if recognized_letter and (len(letters) == 0 or recognized_letter != letters[-1]):
+                letters.append(recognized_letter)
+
+            if recognized_letter:
+                cv2.putText(img, f"Letter: {recognized_letter}", (10,30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+            return img
+
+    webrtc_streamer(
+        key="live_letters",
+        mode=WebRtcMode.SENDONLY,
+        video_transformer_factory=LetterRecognizer,
+        media_stream_constraints={"video": True, "audio": False},
+        async_transform=True
+    )
+
+# ========================
+# Speak letters button
+# ========================
+st.write("Letters detected so far:", "".join(letters))
+
+if st.button("Speak Word"):
+    if letters:
+        word = "".join(letters)
+        tts_file = "output_live.mp3"
+        tts = gTTS(text=word, lang="en")
+        tts.save(tts_file)
+        st.audio(tts_file)
     else:
         st.warning("No letters detected yet.")
