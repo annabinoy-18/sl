@@ -4,102 +4,76 @@ from PIL import Image
 import speech_recognition as sr
 import tempfile
 import os
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import cv2
-import numpy as np
-import threading
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoProcessorBase
 
-# --- CONFIGURATION ---
 st.set_page_config(page_title="AI Speech ↔ Sign Letters", page_icon="🤟", layout="centered")
+st.title("AI Speech ↔ Sign Letters Demo 🎤🖐️")
 
+# --------------------------
+# Folder containing letter signs
+# --------------------------
 SIGNS_FOLDER = os.path.join(os.getcwd(), "signs")
 if not os.path.exists(SIGNS_FOLDER):
-    os.makedirs(SIGNS_FOLDER, exist_ok=True)
-    st.warning(f"Note: Put letter images (A.jpg, B.jpg, etc.) in the '{SIGNS_FOLDER}' folder.")
+    st.error(f"Folder '{SIGNS_FOLDER}' not found! Make sure it exists in the repo root.")
+    st.stop()
 
-# --- SESSION STATE ---
-# We use a list to track detected letters
+# --------------------------
+# Session state for letters
+# --------------------------
 if "letters" not in st.session_state:
     st.session_state["letters"] = []
 
-# This lock prevents the Camera thread and UI thread from crashing each other
-lock = threading.Lock()
+letters = st.session_state["letters"]
 
-# --- RECOGNITION HELPER ---
-def recognize_letter_from_frame(frame_bgr):
-    """
-    Compares the current camera frame to images in the signs folder.
-    Uses Template Matching (Similarity score) instead of bit-wise comparison.
-    """
-    best_match = None
-    max_val = -1
-    
-    # Convert frame to grayscale for faster/more accurate comparison
-    gray_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    
-    # Check if folder is empty
-    if not os.listdir(SIGNS_FOLDER):
-        return None
-
-    for file_name in os.listdir(SIGNS_FOLDER):
-        if file_name.lower().endswith(('.png', '.jpg', '.jpeg')):
-            path = os.path.join(SIGNS_FOLDER, file_name)
-            template = cv2.imread(path, 0)
-            if template is None: continue
-            
-            # Resize template to match a portion of the frame
-            # (Basic approach: match template to frame size)
-            t_h, t_w = template.shape[:2]
-            f_h, f_w = gray_frame.shape[:2]
-            
-            # To make it work, we resize the template to roughly match the camera input
-            scaling_factor = f_h / t_h
-            resized_template = cv2.resize(template, (int(t_w * scaling_factor), f_h))
-            
-            # Use OpenCV Template Matching
-            res = cv2.matchTemplate(gray_frame, resized_template, cv2.TM_CCOEFF_NORMED)
-            _, val, _, _ = cv2.minMaxLoc(res)
-            
-            if val > max_val:
-                max_val = val
-                best_match = os.path.splitext(file_name)[0].upper()
-    
-    # Sensitivity Threshold: 0.6 means 60% similarity
-    return best_match if max_val > 0.6 else None
-
-# --- UI LOGIC ---
-st.title("AI Speech ↔ Sign Letters Demo 🎤🖐️")
-mode = st.selectbox("Select mode:", ["Speech → Letters", "Letter Image → Speech", "Live Camera → Letters"])
+# --------------------------
+# Select mode
+# --------------------------
+mode = st.selectbox("Select mode:", 
+                    ["Speech → Letters", "Letter Image → Speech", "Live Camera → Letters → Speech"])
 
 # ========================
 # Mode 1: Speech → Letters
 # ========================
 if mode == "Speech → Letters":
     st.header("Speech → Letters")
-    uploaded_file = st.file_uploader("Upload speech (wav/mp3):", type=["wav","mp3"])
-    
+    st.session_state["live_mode"] = False
+    uploaded_file = st.file_uploader("Upload speech file (wav/mp3):", type=["wav","mp3"])
     if uploaded_file:
+        audio_bytes = uploaded_file.read()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-            temp_audio.write(uploaded_file.read())
+            temp_audio.write(audio_bytes)
             temp_path = temp_audio.name
 
         r = sr.Recognizer()
         try:
             with sr.AudioFile(temp_path) as source:
                 audio = r.record(source)
-            text = r.recognize_google(audio).upper()
-            st.success(f"Recognized: {text}")
-            
-            # Display signs in a row
-            char_list = [c for c in text if c.isalnum()]
-            if char_list:
-                cols = st.columns(len(char_list))
-                for i, char in enumerate(char_list):
-                    img_path = os.path.join(SIGNS_FOLDER, f"{char}.jpg")
-                    if os.path.exists(img_path):
-                        cols[i].image(Image.open(img_path), caption=char)
-        except Exception as e:
-            st.error(f"Could not process audio: {e}")
+            text = r.recognize_google(audio)
+            st.write("**Recognized text:**", text)
+        except:
+            st.error("Could not process audio.")
+            text = ""
+
+        if text:
+            st.write("**Letter Signs:**")
+            available_files = [os.path.splitext(f)[0].upper() for f in os.listdir(SIGNS_FOLDER)]
+            for letter in text.replace(" ", ""):
+                letter_upper = letter.upper()
+                if letter_upper in available_files:
+                    for f in os.listdir(SIGNS_FOLDER):
+                        if os.path.splitext(f)[0].upper() == letter_upper:
+                            img_path = os.path.join(SIGNS_FOLDER, f)
+                            img = Image.open(img_path)
+                            st.image(img, caption=letter_upper)
+                            break
+                else:
+                    st.warning(f"No sign image for letter '{letter_upper}'")
+
+            tts_file = "output_speech.mp3"
+            tts = gTTS(text=text, lang="en")
+            tts.save(tts_file)
+            st.audio(tts_file)
 
 # ========================
 # Mode 2: Letter Image → Speech
