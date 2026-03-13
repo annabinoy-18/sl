@@ -1,37 +1,52 @@
 import streamlit as st
-import speech_recognition as sr
 from gtts import gTTS
-import os
 from PIL import Image
+import speech_recognition as sr
+import io
+import tempfile
 
+st.set_page_config(page_title="AI Speech to Sign Language", page_icon="🤟", layout="centered")
 st.title("AI Speech to Sign Language Demo 🎤🤟")
+st.write("Record your speech or upload an audio file, then see the corresponding sign language output!")
 
-st.write("Speak into the mic and see the corresponding Sign Language output!")
+# --- AUDIO INPUT ---
+option = st.radio("Choose input method:", ["Record Audio", "Upload Audio File"])
+audio_bytes = None
 
-# 1. Speech Recognition
-recognizer = sr.Recognizer()
+if option == "Record Audio":
+    st.info("Click the button below to record your voice (max 5 seconds).")
+    audio_bytes = st.audio_input("Record your speech here", type="wav")
+elif option == "Upload Audio File":
+    uploaded_file = st.file_uploader("Upload your audio (wav/mp3)", type=["wav","mp3"])
+    if uploaded_file is not None:
+        audio_bytes = uploaded_file.read()
 
-if st.button("Record Speech"):
-    with sr.Microphone() as source:
-        st.info("Listening...")
-        audio = recognizer.listen(source, phrase_time_limit=5)
-        st.success("Recording complete!")
+# --- PROCESS AUDIO ---
+if audio_bytes:
+    st.success("Audio received! Processing...")
+    r = sr.Recognizer()
+
+    # Save audio to temporary file for SpeechRecognition
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        temp_audio.write(audio_bytes)
+        temp_path = temp_audio.name
 
     try:
-        text = recognizer.recognize_google(audio)
-        st.write("You said:", text)
+        with sr.AudioFile(temp_path) as source:
+            audio = r.record(source)
+        text = r.recognize_google(audio)
+        st.write("**You said:**", text)
     except sr.UnknownValueError:
-        st.error("Sorry, could not understand audio")
+        st.error("Could not understand audio")
         text = ""
     except sr.RequestError as e:
-        st.error(f"Could not request results; {e}")
+        st.error(f"Speech Recognition request failed; {e}")
         text = ""
 
-    # 2. Convert text to sign language images (example)
-    # Assuming you have images for each word in 'sign_images/' folder named as word.png
+    # --- TEXT TO SIGN LANGUAGE ---
     if text:
+        st.write("**Sign Language Representation:**")
         words = text.split()
-        st.write("Sign Language Representation:")
         for word in words:
             try:
                 img = Image.open(f"sign_images/{word.lower()}.png")
@@ -39,8 +54,9 @@ if st.button("Record Speech"):
             except FileNotFoundError:
                 st.warning(f"No sign image found for '{word}'")
 
-    # 3. Optional: convert text back to speech for confirmation
+    # --- OPTIONAL: TEXT TO SPEECH ---
     if text:
-        tts = gTTS(text=text, lang='en')
-        tts.save("output.mp3")
-        st.audio("output.mp3")
+        tts = gTTS(text=text, lang="en")
+        tts_file = "output.mp3"
+        tts.save(tts_file)
+        st.audio(tts_file)
